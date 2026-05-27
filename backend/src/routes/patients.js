@@ -11,11 +11,6 @@ router.get('/', authenticate, async (req, res) => {
   try {
     const { search, gender } = req.query;
 
-    // SEC-002 FIX: Build safe Prisma where clause pushed down to DB.
-    // The old approach below fetched ALL patients into memory and filtered in JS,
-    // exposing the full dataset at the application layer (SQL injection risk + data exposure).
-    //
-    // --- UNSAFE CODE (COMMENTED OUT) ---
     // const allPatients = await prisma.patient.findMany({
     //   orderBy: { createdAt: 'desc' },
     // });
@@ -35,9 +30,8 @@ router.get('/', authenticate, async (req, res) => {
     //   );
     // }
     // const paginatedResult = filteredPatients.slice(offset, offset + limit);
-    // --- END UNSAFE CODE ---
 
-    // Safe Prisma-level filtering — no raw SQL, no user input interpolation
+    // Safe Prisma-level filtering 
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 5;
     const offset = (page - 1) * limit;
