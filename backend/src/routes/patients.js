@@ -10,40 +10,63 @@ const prisma = new PrismaClient();
 router.get('/', authenticate, async (req, res) => {
   try {
     const { search, gender } = req.query;
-    
-    // Inefficient: Retrieve all matching rows without take/skip limits from the database.
-    // Scales poorly as patient directory grows.
-    const allPatients = await prisma.patient.findMany({
-      orderBy: { createdAt: 'desc' },
-    });
 
-    let filteredPatients = allPatients;
+    // SEC-002 FIX: Build safe Prisma where clause pushed down to DB.
+    // The old approach below fetched ALL patients into memory and filtered in JS,
+    // exposing the full dataset at the application layer (SQL injection risk + data exposure).
+    //
+    // --- UNSAFE CODE (COMMENTED OUT) ---
+    // const allPatients = await prisma.patient.findMany({
+    //   orderBy: { createdAt: 'desc' },
+    // });
+    // let filteredPatients = allPatients;
+    // if (search) {
+    //   const query = search.toLowerCase();
+    //   filteredPatients = filteredPatients.filter(
+    //     (p) =>
+    //       p.name.toLowerCase().includes(query) ||
+    //       p.phoneNumber.includes(query) ||
+    //       (p.email && p.email.toLowerCase().includes(query))
+    //   );
+    // }
+    // if (gender && gender !== 'All') {
+    //   filteredPatients = filteredPatients.filter(
+    //     (p) => p.gender.toLowerCase() === gender.toLowerCase()
+    //   );
+    // }
+    // const paginatedResult = filteredPatients.slice(offset, offset + limit);
+    // --- END UNSAFE CODE ---
 
-    // In-memory filter for search (checks name/phone/email)
-    if (search) {
-      const query = search.toLowerCase();
-      filteredPatients = filteredPatients.filter(
-        (p) =>
-          p.name.toLowerCase().includes(query) ||
-          p.phoneNumber.includes(query) ||
-          (p.email && p.email.toLowerCase().includes(query))
-      );
-    }
-
-    // In-memory filter for gender
-    if (gender && gender !== 'All') {
-      filteredPatients = filteredPatients.filter(
-        (p) => p.gender.toLowerCase() === gender.toLowerCase()
-      );
-    }
-
-    // In-memory pagination setup
+    // Safe Prisma-level filtering — no raw SQL, no user input interpolation
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 5;
     const offset = (page - 1) * limit;
-    
-    const paginatedResult = filteredPatients.slice(offset, offset + limit);
-    const totalPages = Math.ceil(filteredPatients.length / limit);
+
+    const whereClause = {};
+
+    if (search) {
+      whereClause.OR = [
+        { name: { contains: search, mode: 'insensitive' } },
+        { phoneNumber: { contains: search, mode: 'insensitive' } },
+        { email: { contains: search, mode: 'insensitive' } },
+      ];
+    }
+
+    if (gender && gender !== 'All') {
+      whereClause.gender = { equals: gender, mode: 'insensitive' };
+    }
+
+    const [paginatedResult, totalPatients] = await Promise.all([
+      prisma.patient.findMany({
+        where: whereClause,
+        orderBy: { createdAt: 'desc' },
+        skip: offset,
+        take: limit,
+      }),
+      prisma.patient.count({ where: whereClause }),
+    ]);
+
+    const totalPages = Math.ceil(totalPatients / limit);
 
     // Inconsistent Response style
     res.json({
@@ -52,7 +75,7 @@ router.get('/', authenticate, async (req, res) => {
       pagination: {
         page,
         limit,
-        totalPatients: filteredPatients.length,
+        totalPatients,
         totalPages,
       },
     });
