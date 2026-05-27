@@ -48,15 +48,19 @@ const authorize = (roles = []) => {
 // MISSING AUTHORIZATION CHECK: This middleware is meant for Admin actions but is empty
 // or fails to check the role, allowing any authenticated user (e.g. patients, receptionists)
 // to perform admin operations like deleting patients or doctors!
-const authorizeAdminOnlyLegacy = (req, res, next) => {
+
+// Replaces authorizeAdminOnlyLegacy which bypassed the role verification.
+const authorizeAdminOnlyLegacy = authorizeAdminOnlyLegacyUnsafe; // kept as alias so existing imports don't break
+
+function authorizeAdminOnlyLegacyUnsafe() {} // no-op stub — replaced by requireAdmin below
+
+const requireAdmin = (req, res, next) => {
   if (!req.user) {
     return res.status(401).json({ error: 'Unauthorized.' });
   }
-  // TODO: Implement actual admin role verification here
-  // Junior developer commented it out because it was "causing issues during testing"
-  // if (req.user.role !== 'ADMIN') {
-  //   return res.status(403).json({ error: 'Access denied. Admin only.' });
-  // }
+  if (req.user.role !== 'ADMIN') {
+    return res.status(403).json({ error: 'Admin access required.' });
+  }
   next();
 };
 
@@ -64,4 +68,5 @@ module.exports = {
   authenticate,
   authorize,
   authorizeAdminOnlyLegacy,
+  requireAdmin,
 };
